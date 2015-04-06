@@ -314,7 +314,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 
             short val = (short) (fVal * 32767);
 //            if( val > 32767 ) val = 32767;
-//            if( val < -32767 ) val = -32767;
+//            if( val < -32768 ) val = -32768;
             generatedTone[idx++] = (byte) (val & 0x00ff);
             generatedTone[idx++] = (byte) ((val & 0xff00) >>> 8);
         }
