@@ -40,7 +40,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 
     // Stream loop control
     byte[] scanByte;
-    private int DATA_SCAN_SIZE = 4096; //The size of each time data read from input stream
+    private int DATA_SCAN_SIZE = 8192; //The size of each time data read from input stream
     private int numScanned; //The actual data size read from input stream
     private int numRead; //The data size to be write to audio track
 
@@ -90,12 +90,12 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             while (waiting) {
                 //Get input stream encoding for byte <-> char conversion
                 String charEncoding = new InputStreamReader(clientSocket.getInputStream()).getEncoding();
-                Log.d("SCANNING", "charEncoding: " + charEncoding);
+//                Log.d("SCANNING", "charEncoding: " + charEncoding);
 
                 numScanned += clientSocket.getInputStream().read(scanByte, numScanned, scanByte.length - numScanned);
                 //Data read loop
                 while (numScanned - ires > 0) {
-                    Log.d("INFO", "ByteBuffer.wrap, scanByte.length: " + scanByte.length + ", numScanned: " + numScanned);
+//                    Log.d("INFO", "ByteBuffer.wrap, scanByte.length: " + scanByte.length + ", numScanned: " + numScanned);
                     ByteBuffer scanBuffer = ByteBuffer.wrap(scanByte, 0, numScanned);
                     if (isJitHeader) {
                         ires = parseHeader(scanBuffer, charEncoding);
@@ -129,11 +129,11 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             //Packet ID
             sourceBuffer.get(worker, 0, worker.length);
             if (!(new String(worker, 0, worker.length, charEncoding).equals(_JMTX))) {
-                Log.e("ERROR", "Unknown package ID: " + new String(worker, 0, worker.length, charEncoding));
+//                Log.e("ERROR", "Unknown package ID: " + new String(worker, 0, worker.length, charEncoding));
                 return -1;
             }
             numRead += worker.length;
-            Log.d("INFO", "Package ID: JMTX");
+//            Log.d("INFO", "Package ID: JMTX");
 
             //Skip 8 bytes for unknown reason
             numRead += 8;
@@ -141,12 +141,12 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             //Get header size + 8 unknown gap at last
             numHeaderSize = sourceBuffer.getInt(numRead) + 8;
             numRead += worker.length;
-            Log.d("INFO", "numHeaderSize: " + numHeaderSize);
+//            Log.d("INFO", "numHeaderSize: " + numHeaderSize);
 
             //Jit matrix plane count
             jitPlaneCount = sourceBuffer.getInt(numRead);
             numRead += worker.length;
-            Log.d("INFO", "jitPlaneCount: " + jitPlaneCount);
+//            Log.d("INFO", "jitPlaneCount: " + jitPlaneCount);
 
             ////Jit matrix data type
             //According to https://docs.cycling74.com/max5/refpages/jit-ref/jit.release~.html
@@ -157,7 +157,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
                 return -1;
             }
             numRead += worker.length;
-            Log.d("INFO", "jitType: " + jitType);
+//            Log.d("INFO", "jitType: " + jitType);
 
             //The number of dimension
             //By testing, it is 1D.
@@ -167,7 +167,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
                 return -1;
             }
             numRead += worker.length;
-            Log.d("INFO", "jitDimCount: " + jitDimCount);
+//            Log.d("INFO", "jitDimCount: " + jitDimCount);
 
             //32 dim array
             for (int i = 0; i < 32; i++) {
@@ -176,7 +176,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             }
             // Since the audio buffer is 1D, only jitDim[0] is working
             // Usually, the size is 512
-            Log.d("INFO", "jitDim 0: " + jitDim[0]);
+//            Log.d("INFO", "jitDim 0: " + jitDim[0]);
 
             //Unknown gap
             numRead += 128;
@@ -185,18 +185,18 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             // Usually, the size is 2048
             jitDataSize = sourceBuffer.getInt(numRead);
             numRead += worker.length;
-            Log.d("INFO", "jitDataSize: " + jitDataSize);
+//            Log.d("INFO", "jitDataSize: " + jitDataSize);
 
             //Get body size
 //            numBodySize = jitDataSize - numHeaderSize;
             numBodySize = jitDataSize;
-            Log.d("INFO", "numBodySize: " + numBodySize);
+//            Log.d("INFO", "numBodySize: " + numBodySize);
 
             //Unknown gap
             numRead += 8;
 
             if (numRead == numHeaderSize) {
-                Log.d("INFO", "End of parseHeader, numRead: " + numRead);
+//                Log.d("INFO", "End of parseHeader, numRead: " + numRead);
                 //Refill result buffer
                 int numByteLeft = sourceBuffer.limit() - numRead;
 //                Log.e("INFO", "End of parseHeader, numByteLeft: " + numByteLeft);
@@ -243,11 +243,9 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
         //The length of matrix data should be 1/4 of the body size.
         //The body size should always be able to be divided by 4.
         int floatLength = floatBuffer.limit();
-        Log.d("INFO", "sourceBuffer size: " + sourceBuffer.limit());
-        Log.d("INFO", "floatBuffer size: " + floatBuffer.limit());
         if (floatLength + numBodyCount > numBodySize/4)
             floatLength = numBodySize/4 - numBodyCount;
-        Log.e("INFO", "floatBuffer size: " + floatLength);
+
         float[] sourceFloat = new float[floatLength];
         floatBuffer.get(sourceFloat);
         //Check if a new header is coming at unexpected position.
@@ -281,7 +279,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
         numScanned -= numRead;
         numRead = 0;
         if (floatLength + numBodyCount == numBodySize/4) {
-            Log.d("INFO", "End of parseBody, reset to read header...");
+//            Log.d("INFO", "End of parseBody, reset to read header...");
             isJitHeader = true;
             numBodyCount = 0;
         } else {
@@ -301,11 +299,14 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
         byte generatedSnd[] = new byte[2 * data.length];
         int idx = 0;
         for (float fVal : data) {
-            short val = (short) (fVal * 32768);
-            if( val > 32767 ) val = 32767;
-            if( val < -32768 ) val = -32768;
-            generatedSnd[idx++] = (byte) (val & 0xff);
-            generatedSnd[idx++] = (byte) ((val >> 8) & 0xff);
+            if (fVal < -1.0f || fVal > 1.0f)
+                Log.e("ERROR", "message float out of range: " + fVal);
+
+            short val = (short) (fVal * 32767);
+//            if( val > 32767 ) val = 32767;
+//            if( val < -32767 ) val = -32767;
+            generatedSnd[idx++] = (byte) (val & 0x00ff);
+            generatedSnd[idx++] = (byte) ((val & 0xff00) >>> 8);
         }
         audioTrack.write(generatedSnd, 0, generatedSnd.length);
     }
