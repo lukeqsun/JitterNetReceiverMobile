@@ -50,12 +50,15 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
     static final int audioEncoding = AudioFormat.ENCODING_PCM_16BIT;
     private int audioBufferSize;
     private AudioTrack audioTrack;
+    private byte[] audioSwapBuffer;
+    private int audioBufferCount;
 
     public ServerAsyncTask() {
         super();
 
         audioBufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfiguration, audioEncoding);
         audioTrack = new AudioTrack(AudioManager.STREAM_MUSIC, sampleRate, channelConfiguration, audioEncoding, audioBufferSize, AudioTrack.MODE_STREAM);
+        audioBufferCount = 0;
     }
 
     @Override
@@ -294,10 +297,17 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
         if (data == null && data.length < 1)
             return;
 
+        //Extend current swap buffer for new data
+        byte generatedTone[] = new byte[audioBufferCount + 2 * data.length];
+        if (audioBufferCount > 0) {
+            ByteBuffer tempGenBuffer = ByteBuffer.wrap(audioSwapBuffer, 0, audioBufferCount);
+            tempGenBuffer.get(generatedTone, 0, tempGenBuffer.limit());
+//            Log.d("INFO", "tempGenBuffer.limit(): " + tempGenBuffer.limit());
+        }
+
         // convert to 16 bit pcm sound array
         // assumes the sample buffer is normalised.
-        byte generatedSnd[] = new byte[2 * data.length];
-        int idx = 0;
+        int idx = audioBufferCount;
         for (float fVal : data) {
             if (fVal < -1.0f || fVal > 1.0f)
                 Log.e("ERROR", "message float out of range: " + fVal);
@@ -305,10 +315,25 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             short val = (short) (fVal * 32767);
 //            if( val > 32767 ) val = 32767;
 //            if( val < -32767 ) val = -32767;
-            generatedSnd[idx++] = (byte) (val & 0x00ff);
-            generatedSnd[idx++] = (byte) ((val & 0xff00) >>> 8);
+            generatedTone[idx++] = (byte) (val & 0x00ff);
+            generatedTone[idx++] = (byte) ((val & 0xff00) >>> 8);
         }
-        audioTrack.write(generatedSnd, 0, generatedSnd.length);
+        audioBufferCount = generatedTone.length;
+        Log.d("INFO", "audioBufferCount: " + audioBufferCount);
+
+        int audioWritePosition = 0;
+        while (audioBufferCount >= audioBufferSize) {
+            audioBufferCount -= audioBufferSize;
+            audioTrack.write(generatedTone, audioWritePosition, audioBufferSize);
+            audioWritePosition += audioBufferSize;
+        }
+
+        if (audioBufferCount > 0) {
+            Log.e("INFO", "audioBufferCount left: " + audioBufferCount);
+            audioSwapBuffer = new byte[audioBufferCount];
+            ByteBuffer tempSwapBuffer = ByteBuffer.wrap(generatedTone, audioWritePosition, audioBufferCount);
+            tempSwapBuffer.get(audioSwapBuffer, 0, audioBufferCount);
+        }
     }
 
     /**
