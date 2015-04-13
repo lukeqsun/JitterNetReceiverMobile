@@ -1,7 +1,9 @@
 package edu.rit.jitternetreceiver;
 
 import android.content.Context;
+import android.util.Log;
 
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -15,7 +17,15 @@ public class JitterNetReceiver {
     public JitterNetReceiver(final Context ctx, final int port) {
 
         try {
-            sockfd = new ServerSocket(port);
+            sockfd = new ServerSocket();
+            sockfd.setReuseAddress(true);
+            //Set SO_RCVBUF
+            int receiveBufferSize = sockfd.getReceiveBufferSize();
+            Log.d("SERVER SETUP", "default receiveBufferSize: " + receiveBufferSize);
+            if (receiveBufferSize < 131072) {
+                sockfd.setReceiveBufferSize(131072);
+            }
+            sockfd.bind(new InetSocketAddress(port));
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -24,6 +34,7 @@ public class JitterNetReceiver {
             public void run() {
                 try {
                     connfd = sockfd.accept();
+                    connfd.setTcpNoDelay(true);
 
                     ServerAsyncTask serverAsyncTask = new ServerAsyncTask();
                     serverAsyncTask.execute(new Socket[] {connfd});

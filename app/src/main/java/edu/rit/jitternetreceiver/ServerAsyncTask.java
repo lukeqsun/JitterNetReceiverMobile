@@ -34,6 +34,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
     private long jitDimCount; //The number of dimension
     private int[] jitDim = new int[32]; //The length of each dimension
     private int jitDataSize; //The total packet size in bytes, including header and body
+    private double jitTimeStamp; //The time from jit.net.send
     private int numHeaderSize; //The current byte array size of the header
     private int numBodySize; //The current byte array size of the body
     private int numBodyCount; //The number of the body data read, counted in float32
@@ -139,9 +140,10 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 //            Log.d("INFO", "Package ID: JMTX");
 
             //Skip 8 bytes for unknown reason
+            //The 8 bytes have the same content all the time.
             numRead += 8;
 
-            //Get header size + 8 unknown gap at last
+            //Get header size + 8 time in double format at last
             numHeaderSize = sourceBuffer.getInt(numRead) + 8;
             numRead += worker.length;
 //            Log.d("INFO", "numHeaderSize: " + numHeaderSize);
@@ -195,8 +197,10 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             numBodySize = jitDataSize;
 //            Log.d("INFO", "numBodySize: " + numBodySize);
 
-            //Unknown gap
+            //Get time
+            jitTimeStamp = sourceBuffer.getDouble(numRead);
             numRead += 8;
+//            Log.d("INFO", "jitTimeStamp: " + jitTimeStamp);
 
             if (numRead == numHeaderSize) {
 //                Log.d("INFO", "End of parseHeader, numRead: " + numRead);
