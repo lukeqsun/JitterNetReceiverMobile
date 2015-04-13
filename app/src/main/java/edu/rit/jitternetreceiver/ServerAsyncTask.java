@@ -24,8 +24,10 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 
     //Jitter Packet parser
     private String _JMTX = "JMTX";
-    private String _JMLP = "JMLP"; //Not used
+    private String _JMLP = "JMLP";
     private String _JMMP = "JMMP"; //Not used
+    //The charset used in packet
+    private String charEncoding;
     //This value indicates that the stream is suddenly end and should be parsed from beginning.
     private float _f_header_check_value = 3364118.0f;
     private boolean isJitHeader; //True if the current packet is the header
@@ -34,7 +36,14 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
     private long jitDimCount; //The number of dimension
     private int[] jitDim = new int[32]; //The length of each dimension
     private int jitDataSize; //The total packet size in bytes, including header and body
-    private double jitTimeStamp; //The time from jit.net.send
+    //The time value received in the matrix header packet
+    //The time is somehow based on the elapsed time of the day?
+    private double jitClientTimeOriginal;
+    //The time on the server when the packet header is received
+    private double jitServerTimeBeforeData;
+    //The time on the server after the packet has been processed and is in use
+    private double jitServerTimeAfterData;
+    private long pseudoInitialTime;
     private int numHeaderSize; //The current byte array size of the header
     private int numBodySize; //The current byte array size of the body
     private int numBodyCount; //The number of the body data read, counted in float32
@@ -79,6 +88,9 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             waiting = true;
             audioTrack.play();
 
+            //Init application time
+            setPseudoInitialTime();
+
             //Set initial value for the first variables
             //Always consider the first incoming packet is the header packet
             isJitHeader = true;
@@ -93,7 +105,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             int ires = 0;
             while (waiting) {
                 //Get input stream encoding for byte <-> char conversion
-                String charEncoding = new InputStreamReader(clientSocket.getInputStream()).getEncoding();
+                charEncoding = new InputStreamReader(clientSocket.getInputStream()).getEncoding();
 //                Log.d("SCANNING", "charEncoding: " + charEncoding);
 
                 numScanned += clientSocket.getInputStream().read(scanByte, numScanned, scanByte.length - numScanned);
@@ -102,9 +114,9 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 //                    Log.d("INFO", "ByteBuffer.wrap, scanByte.length: " + scanByte.length + ", numScanned: " + numScanned);
                     ByteBuffer scanBuffer = ByteBuffer.wrap(scanByte, 0, numScanned);
                     if (isJitHeader) {
-                        ires = parseHeader(scanBuffer, charEncoding);
+                        ires = parseHeader(scanBuffer);
                     } else {
-                        ires = parseBody(scanBuffer, charEncoding);
+                        ires = parseBody(scanBuffer);
                     }
 
                     //End scanning
@@ -120,7 +132,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
     }
 
     //Jit Network Header Parser
-    private int parseHeader(ByteBuffer sourceBuffer, String charEncoding) {
+    private int parseHeader(ByteBuffer sourceBuffer) {
         // If the length of buffer left is less than header
         // Just waiting for the next input
         if (sourceBuffer.limit() < numHeaderSize) {
@@ -136,6 +148,11 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 //                Log.e("ERROR", "Unknown package ID: " + new String(worker, 0, worker.length, charEncoding));
                 return -1;
             }
+
+            //Record the time when the packet header is received
+            jitServerTimeBeforeData = getJitTimeStamp();
+//            Log.d("INFO", "jitServerTimeBeforeData: " + jitServerTimeBeforeData);
+
             numRead += worker.length;
 //            Log.d("INFO", "Package ID: JMTX");
 
@@ -198,9 +215,9 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 //            Log.d("INFO", "numBodySize: " + numBodySize);
 
             //Get time
-            jitTimeStamp = sourceBuffer.getDouble(numRead);
+            jitClientTimeOriginal = sourceBuffer.getDouble(numRead);
             numRead += 8;
-//            Log.d("INFO", "jitTimeStamp: " + jitTimeStamp);
+            Log.e("INFO", "jitClientTimeOriginal: " + jitClientTimeOriginal);
 
             if (numRead == numHeaderSize) {
 //                Log.d("INFO", "End of parseHeader, numRead: " + numRead);
@@ -244,7 +261,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
     }
 
     //Parse jit.matrix
-    private int parseBody(ByteBuffer sourceBuffer, String charEncoding) {
+    private int parseBody(ByteBuffer sourceBuffer) {
         //Notice: it is impossible that the length of source buffer would be less than 4.
         FloatBuffer floatBuffer = sourceBuffer.asFloatBuffer();
         //The length of matrix data should be 1/4 of the body size.
@@ -264,7 +281,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 //            floatBuffer.get(sourceFloat);
 //        }
         numRead = sourceFloat.length * 4;
-        Log.d("INFO", "sourceFloat size: " + sourceFloat.length);
+//        Log.d("INFO", "sourceFloat size: " + sourceFloat.length);
 
         genTone(sourceFloat);
 
@@ -289,6 +306,19 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
 //            Log.d("INFO", "End of parseBody, reset to read header...");
             isJitHeader = true;
             numBodyCount = 0;
+
+            //Record the time when the packet header is received
+            jitServerTimeAfterData = getJitTimeStamp();
+//            Log.d("INFO", "jitServerTimeAfterData: " + jitServerTimeAfterData);
+
+            //Send feedback JMLP packet to jit.net.send
+            try {
+                byte[] sendByte = composeJMLP();
+                clientSocket.getOutputStream().write(sendByte);
+                Log.d("INFO", "Send feedback at " + getJitTimeStamp());
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         } else {
             numBodyCount += floatLength;
         }
@@ -323,7 +353,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
             generatedTone[idx++] = (byte) ((val & 0xff00) >>> 8);
         }
         audioBufferCount = generatedTone.length;
-        Log.d("INFO", "audioBufferCount: " + audioBufferCount);
+//        Log.d("INFO", "audioBufferCount: " + audioBufferCount);
 
         int audioWritePosition = 0;
         while (audioBufferCount >= audioBufferSize) {
@@ -333,7 +363,7 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
         }
 
         if (audioBufferCount > 0) {
-            Log.e("INFO", "audioBufferCount left: " + audioBufferCount);
+//            Log.e("INFO", "audioBufferCount left: " + audioBufferCount);
             audioSwapBuffer = new byte[audioBufferCount];
             ByteBuffer tempSwapBuffer = ByteBuffer.wrap(generatedTone, audioWritePosition, audioBufferCount);
             tempSwapBuffer.get(audioSwapBuffer, 0, audioBufferCount);
@@ -421,5 +451,57 @@ public class ServerAsyncTask extends AsyncTask<Socket, Void, String> {
                 clientSocket.close();
         } catch (Exception e) { e.printStackTrace(); }
         clientSocket = null;
+    }
+
+    //jit.net.send expects the server to respond by sending back timing data of its own –
+    //it uses this data to estimate the transmission latency. The exact data in the latency
+    // chunk that jit.net.send expects to receive is the following:
+    private byte[] composeJMLP() {
+        //4 bytes id + 3 * 8 bytes time stamp
+        byte[] jmlpByte = new byte[28];
+        ByteBuffer scanBuffer = ByteBuffer.wrap(jmlpByte, 0, jmlpByte.length);
+        byte[] id;
+        try {
+            id = _JMLP.getBytes(charEncoding);
+            if (id.length == 4) {
+                scanBuffer.put(id);
+            } else {
+                Log.e("ERROR", "composeJMLP: Wrong id length: " + id.length);
+            }
+        } catch (Exception e) { e.printStackTrace(); }
+        scanBuffer.putDouble(jitClientTimeOriginal);
+        scanBuffer.putDouble(jitServerTimeBeforeData);
+        scanBuffer.putDouble(jitServerTimeAfterData);
+
+        return jmlpByte;
+    }
+
+    private void setPseudoInitialTime() {
+//        Calendar c = Calendar.getInstance();
+//        SimpleDateFormat sdf;
+////            sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+////            Log.d("INFO", "Today org: " + sdf.format(new Date()));
+//        sdf = new SimpleDateFormat("yyyy/MM/dd");
+//        String tempS1 = sdf.format(new Date());
+//        sdf = new SimpleDateFormat("HH");
+//        String tempS2 = "";
+//        if (Integer.parseInt(sdf.format(new Date())) < 12)
+//            tempS2 = " 00:00:00";
+//        else
+//            tempS2 = " 12:00:00";
+//
+//        sdf = new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
+//        try {
+//            Date beginToday = sdf.parse(tempS1 + tempS2);
+////            Log.d("INFO", "Today: " + sdf.format(beginToday));
+//            c.setTime(beginToday);
+//            pseudoInitialTime = c.getTimeInMillis() * 100;
+//            Log.d("INFO", "Today pseudoInitialTime: " + pseudoInitialTime);
+//        } catch (Exception e) { e.printStackTrace(); }
+        pseudoInitialTime = System.nanoTime() - 10000000000l;
+    }
+
+    private double getJitTimeStamp() {
+        return (System.nanoTime() - pseudoInitialTime)/1000000d;
     }
 }
